@@ -200,7 +200,7 @@ socket.on('guessResult', ({ guesser, guess, feedback, playerNumber: pNum }) => {
         if (ch === 'V') return '<span class="feedback-v">V</span>';
         return '<span class="feedback-0">0</span>';
     }).join('');
-    guessFb.innerHTML = fbHtml || '—';
+    guessFb.innerHTML = fbHtml || '0';
     
     guessRow.appendChild(guessNum);
     guessRow.appendChild(guessFb);

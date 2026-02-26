@@ -1,6 +1,3 @@
-npm start 
-http://localhost:3000/ 
-
-ngrok http 80
-https://unpropped-incapably-aydin.ngrok-free.dev/online-tv0-game/public/
+You can test the game in this link:
+https://online-tv0-game.onrender.com/
 
