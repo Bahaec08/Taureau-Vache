@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ONLINE T·V·0 · two player</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="landing-page" id="landingPage">
+        <h1>🎮 T·V·0 ONLINE</h1>
+        <div class="badge-row">
+            <div class="badge"><span class="tt">T</span> = correct + right place</div>
+            <div class="badge"><span class="vv">V</span> = correct · wrong place</div>
+            <div class="badge"><span class="z0">0</span> = nothing correct</div>
+        </div>
+        
+        <div class="landing-buttons">
+            <button id="createRoomBtn">🎲 Create New Game</button>
+            <div class="or-divider">OR</div>
+            <div class="join-section">
+                <input type="text" id="roomCodeInput" placeholder="Enter room code" maxlength="6">
+                <button id="joinRoomBtn">🔑 Join Game</button>
+            </div>
+        </div>
+        
+        <div id="landingError" class="error-message"></div>
+    </div>
+
+    <div class="game-page" id="gamePage" style="display: none;">
+        <div class="game-wrapper">
+            <div class="game-container">
+                <div class="game-header">
+                    <h1>⚔️ VS FRIEND</h1>
+                    <div class="room-info" id="roomInfo"></div>
+                    <div class="player-indicator" id="playerIndicator">Player <span id="playerNumber">1</span></div>
+                </div>
+
+                <!-- Secret Banner - Always visible at the top -->
+                <div class="secret-banner" id="secretBanner" style="display: none;">
+                    <div class="secret-label">🤫 Your secret:</div>
+                    <div class="secret-number" id="mySecretDisplay">———</div>
+                </div>
+
+                <div class="badge-row">
+                    <div class="badge"><span class="tt">T</span> = right place</div>
+                    <div class="badge"><span class="vv">V</span> = wrong place</div>
+                    <div class="badge"><span class="z0">0</span> = none correct</div>
+                </div>
+
+                <div id="secretSetup" class="secret-setup">
+                    <h3>🔐 Set your secret number</h3>
+                    <p>(3 digits, no leading zero, all unique)</p>
+                    <div class="input-area">
+                        <input type="text" id="secretInput" class="secret-input" placeholder="123" maxlength="3">
+                        <button id="setSecretBtn">set</button>
+                    </div>
+                    <div id="secretError" class="error-message"></div>
+                </div>
+
+                <div id="gameArea" style="display: none; height: 100%; display: flex; flex-direction: column;">
+                    <div class="turn-indicator" id="turnIndicator">Waiting for game to start...</div>
+
+                    <div class="history-row">
+                        <div class="panel">
+                            <h2>🎯 My guesses</h2>
+                            <div class="history-list" id="myGuesses"></div>
+                        </div>
+                        <div class="panel">
+                            <h2>👤 Opponent's guesses</h2>
+                            <div class="history-list" id="opponentGuesses"></div>
+                        </div>
+                    </div>
+
+                    <!-- Guess Area -->
+                    <div class="guess-section">
+                        <div class="turn-message" id="turnMessage"></div>
+                        <div class="input-area">
+                            <input type="text" id="guessInput" class="guess-input" placeholder="123" maxlength="3" disabled>
+                            <button id="guessBtn" disabled>guess</button>
+                        </div>
+                    </div>
+
+                    <div id="gameError" class="error-message"></div>
+                </div>
+            </div>
+
+            <div class="eliminator-panel">
+                <h3>❌ digit eliminator</h3>
+                <p>click digits NOT in opponent's secret</p>
+                <div class="digit-grid" id="digitGrid"></div>
+                <div class="eliminator-status">
+                    <span id="eliminatedCount">0</span> digits eliminated
+                </div>
+                <button id="resetEliminatorBtn">reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
