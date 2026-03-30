@@ -528,3 +528,78 @@ button:disabled {
     0% { transform: scale(0.8); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
 }
+
+/* ----- AVATARS & EMOTES ----- */
+.scoreboard {
+    padding: 0.4rem 0.6rem;
+}
+.player-container {
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+.avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #1b4757;
+    border: 2px solid #5ba3c0;
+    margin-right: 5px;
+    transition: box-shadow 0.3s ease;
+}
+.avatar.active-turn {
+    box-shadow: 0 0 10px #f5d98f;
+    border-color: #f5d98f;
+}
+.thinking-emote {
+    position: absolute;
+    top: -12px;
+    right: -10px;
+    background: #fff;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    padding: 2px 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    animation: bounce 0.5s infinite alternate;
+    z-index: 10;
+}
+@keyframes bounce {
+    from { transform: translateY(0); }
+    to { transform: translateY(-4px); }
+}
+
+/* ----- TIMER ----- */
+.timer-wrapper {
+    width: 100%;
+    height: 6px;
+    background: #0b2d3c;
+    border-radius: 3px;
+    margin: 0.2rem 0 0.5rem 0;
+    overflow: hidden;
+    border: 1px solid #4f95b0;
+}
+.timer-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #66bb6a, #e53935);
+    transform-origin: left;
+}
+.timer-active {
+    animation: shrink linear forwards;
+}
+@keyframes shrink {
+    0% { transform: scaleX(1); }
+    100% { transform: scaleX(0); }
+}
+
+/* ----- ERROR SHAKE ----- */
+@keyframes shake {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-4px); }
+    100% { transform: translateX(0); }
+}
+.shake {
+    animation: shake 0.3s forwards;
+}

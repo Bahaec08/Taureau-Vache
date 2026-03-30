@@ -15,23 +15,32 @@ const rooms = {};
 // Map socket id to { roomCode, playerKey } for disconnect logic
 const socketToPlayerInfo = {};
 
-// Helper function to generate room code
+// Garbage Collection for inactive rooms
+setInterval(() => {
+    const now = Date.now();
+    for (const roomCode in rooms) {
+        if (now - rooms[roomCode].lastActivity > 30 * 60 * 1000) { // 30 mins
+            if (rooms[roomCode].timer) clearTimeout(rooms[roomCode].timer);
+            delete rooms[roomCode];
+            console.log(`Cleaned up inactive room: ${roomCode}`);
+        }
+    }
+}, 10 * 60 * 1000);
+
 function generateRoomCode() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-// Helper function to validate number (pro rules)
 function isValidProNumber(numStr) {
+    if (typeof numStr !== 'string') return false;
     if (!/^\d{3}$/.test(numStr)) return false;
     if (numStr[0] === '0') return false;
     let digits = numStr.split('');
     return new Set(digits).size === 3;
 }
 
-// Feedback function (left to right, shows T and V only)
 function evaluateFeedbackLeftToRight(secret, guess) {
-    if (secret.length !== 3 || guess.length !== 3) return '';
-    
+    if (typeof secret !== 'string' || typeof guess !== 'string' || secret.length !== 3 || guess.length !== 3) return '';
     const secretArr = secret.split('');
     const guessArr = guess.split('');
     
@@ -51,7 +60,6 @@ function evaluateFeedbackLeftToRight(secret, guess) {
     // Step 2: Check for wrong position (V)
     for (let i = 0; i < 3; i++) {
         if (feedback[i] !== null) continue;
-        
         let found = false;
         for (let j = 0; j < 3; j++) {
             if (!usedInSecret[j] && guessArr[i] === secretArr[j]) {
@@ -62,161 +70,183 @@ function evaluateFeedbackLeftToRight(secret, guess) {
         }
         feedback[i] = found ? 'V' : '';
     }
-    
     return feedback.join('');
 }
 
-io.on('connection', (socket) => {
-    console.log('New client connected:', socket.id);
+function updateActivity(roomCode) {
+    if (rooms[roomCode]) {
+        rooms[roomCode].lastActivity = Date.now();
+    }
+}
 
-    // Create a new game room
+function clearRoomTimer(roomCode) {
+    const room = rooms[roomCode];
+    if (room && room.timer) {
+        clearTimeout(room.timer);
+        room.timer = null;
+    }
+}
+
+function startRoundTimer(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
+    
+    clearRoomTimer(roomCode);
+    
+    room.timer = setTimeout(() => {
+        handleTurnTimeout(roomCode);
+    }, 15500); // 15s + 500ms grace period
+    
+    io.to(roomCode).emit('timerStarted', { duration: 15 });
+}
+
+function handleTurnTimeout(roomCode) {
+    const room = rooms[roomCode];
+    if (!room || !room.gameStarted) return;
+    updateActivity(roomCode);
+    
+    const currentPlayer = room.currentTurn;
+    const opponentKey = currentPlayer === 'player1' ? 'player2' : 'player1';
+    
+    io.to(roomCode).emit('turnTimeout', {
+        player: currentPlayer,
+        message: `${room.usernames[currentPlayer]} ran out of time! Turn skipped.`
+    });
+    
+    if (room.pendingDrawChance === currentPlayer) {
+        // Failed the draw chance
+        const trueWinner = opponentKey;
+        finishRound(roomCode, trueWinner);
+    } else {
+        room.currentTurn = opponentKey;
+        io.to(roomCode).emit('turnChanged', {
+            turn: room.currentTurn,
+            message: `${room.usernames[room.currentTurn]}'s turn to guess`
+        });
+        startRoundTimer(roomCode);
+    }
+}
+
+function resetRoundState(roomCode, nextStarter) {
+    const room = rooms[roomCode];
+    if (!room) return;
+    room.gameStarted = false;
+    room.playerSecrets = {};
+    room.playerReady = {};
+    room.guesses = { player1: [], player2: [] };
+    room.pendingDrawChance = null;
+    clearRoomTimer(roomCode);
+    room.currentTurn = nextStarter || room.roundFirstPlayer || 'player1';
+}
+
+function finishRound(roomCode, winnerKey) {
+    const room = rooms[roomCode];
+    if (!room) return;
+    
+    room.scores[winnerKey]++;
+    const winnerName = room.usernames[winnerKey];
+    
+    if (room.scores[winnerKey] >= 5) {
+        io.to(roomCode).emit('gameWon', {
+            winner: winnerKey,
+            winnerName: winnerName,
+            scores: room.scores,
+            message: `${winnerName} wins the game!`
+        });
+    } else {
+        io.to(roomCode).emit('roundWon', {
+            winner: winnerKey,
+            scores: room.scores,
+            message: `${winnerName} guessed the number correctly!`
+        });
+        resetRoundState(roomCode, winnerKey === 'player1' ? 'player2' : 'player1');
+    }
+}
+
+io.on('connection', (socket) => {
+    // createRoom
     socket.on('createRoom', ({ username }) => {
         const roomCode = generateRoomCode();
         rooms[roomCode] = {
+            roomCode,
             players: [socket.id],
-            usernames: {
-                player1: username,
-                player2: null
-            },
-            playerNumbers: {}, // maps socket.id to player number
-            scores: {
-                player1: 0,
-                player2: 0
-            },
+            usernames: { player1: username, player2: null },
+            playerNumbers: {},
+            scores: { player1: 0, player2: 0 },
             playerSecrets: {},
-            guesses: {
-                player1: [], // guesses made BY player1
-                player2: []  // guesses made BY player2
-            },
+            guesses: { player1: [], player2: [] },
             currentTurn: null,
+            roundFirstPlayer: null,
             gameStarted: false,
             playerReady: {},
-            sockets: {
-                player1: socket.id,
-                player2: null
-            }
+            sockets: { player1: socket.id, player2: null },
+            lastActivity: Date.now(),
+            timer: null,
+            pendingDrawChance: null
         };
-        
-        socket.join(roomCode);
         rooms[roomCode].playerNumbers[socket.id] = 1;
         socketToPlayerInfo[socket.id] = { roomCode, playerKey: 'player1' };
-        
-        socket.emit('roomCreated', { 
-            roomCode, 
-            playerNumber: 1, 
-            usernames: rooms[roomCode].usernames 
-        });
-        console.log(`Room created: ${roomCode} by ${socket.id} (${username})`);
+        socket.join(roomCode);
+        socket.emit('roomCreated', { roomCode, playerNumber: 1, usernames: rooms[roomCode].usernames });
     });
 
-    // Join an existing room
+    // joinRoom
     socket.on('joinRoom', ({ roomCode, username }) => {
         roomCode = roomCode.toUpperCase();
         const room = rooms[roomCode];
-        
-        if (!room) {
-            socket.emit('error', 'Room not found');
-            return;
-        }
-        
-        if (room.players.length >= 2 && !Object.values(room.usernames).includes(username)) {
-            socket.emit('error', 'Room is full');
-            return;
-        }
-        
-        // Prevent joining if username matches player1 to avoid conflicts
-        if (room.usernames.player1 === username && room.players.length === 1) {
-            socket.emit('error', 'Username already taken in this room');
-            return;
-        }
+        if (!room) return socket.emit('error', 'Room not found');
+        if (room.players.length >= 2 && !Object.values(room.usernames).includes(username)) return socket.emit('error', 'Room is full');
+        if (room.usernames.player1 === username && room.players.length === 1) return socket.emit('error', 'Username already taken');
 
+        updateActivity(roomCode);
         room.players.push(socket.id);
         room.playerNumbers[socket.id] = 2;
         room.usernames.player2 = username;
         room.sockets.player2 = socket.id;
-        
         socket.join(roomCode);
         socketToPlayerInfo[socket.id] = { roomCode, playerKey: 'player2' };
         
         socket.emit('roomJoined', { 
-            roomCode, 
-            playerNumber: 2, 
-            usernames: room.usernames,
-            scores: room.scores
+            roomCode, playerNumber: 2, usernames: room.usernames, scores: room.scores
         });
-        
-        // Notify player 1 that player 2 joined
-        io.to(room.sockets.player1).emit('opponentJoined', {
-            usernames: room.usernames,
-            scores: room.scores
-        });
-        
-        console.log(`Player 2 (${username}) joined room: ${roomCode}`);
+        io.to(room.sockets.player1).emit('opponentJoined', { usernames: room.usernames, scores: room.scores });
     });
 
-    // Rejoin an existing room (on page refresh)
+    // rejoinRoom
     socket.on('rejoinRoom', ({ roomCode, username }) => {
         const room = rooms[roomCode];
-        if (!room) {
-            socket.emit('error', 'Room not found');
-            return;
-        }
+        if (!room) return socket.emit('error', 'Room not found');
         
-        let playerKey = null;
-        let playerNumber = null;
+        updateActivity(roomCode);
+        let playerKey = null, playerNumber = null;
+        if (room.usernames.player1 === username) { playerKey = 'player1'; playerNumber = 1; }
+        else if (room.usernames.player2 === username) { playerKey = 'player2'; playerNumber = 2; }
+        else return socket.emit('error', 'Could not authenticate to rejoin');
         
-        if (room.usernames.player1 === username) {
-            playerKey = 'player1';
-            playerNumber = 1;
-        } else if (room.usernames.player2 === username) {
-            playerKey = 'player2';
-            playerNumber = 2;
-        } else {
-            socket.emit('error', 'Could not authenticate to rejoin');
-            return;
-        }
-        
-        // Update socket references
         room.sockets[playerKey] = socket.id;
         room.playerNumbers[socket.id] = playerNumber;
-        if (!room.players.includes(socket.id)) {
-            room.players.push(socket.id);
-        }
+        if (!room.players.includes(socket.id)) room.players.push(socket.id);
         socketToPlayerInfo[socket.id] = { roomCode, playerKey };
-        
         socket.join(roomCode);
         
-        // Construct sync state
         const opponentKey = playerKey === 'player1' ? 'player2' : 'player1';
-        
-        const state = {
-            roomCode,
-            playerNumber,
-            usernames: room.usernames,
-            scores: room.scores,
-            gameStarted: room.gameStarted,
-            currentTurn: room.currentTurn,
+        socket.emit('syncState', {
+            roomCode, playerNumber, usernames: room.usernames, scores: room.scores,
+            gameStarted: room.gameStarted, currentTurn: room.currentTurn,
             mySecret: room.playerSecrets[playerKey] || null,
             opponentReady: !!room.playerReady[opponentKey],
-            guesses: room.guesses
-        };
-        
-        socket.emit('syncState', state);
-        console.log(`Player ${playerNumber} (${username}) rejoined room: ${roomCode}`);
-        
-        // Notify other player that we're back potentially?
-        // Not strictly necessary unless we showed them as offline, but good to ensure everything is smooth.
+            guesses: room.guesses,
+            pendingDrawChance: room.pendingDrawChance
+        });
     });
 
-    // Set player's secret number
+    // setSecret
     socket.on('setSecret', ({ roomCode, secret }) => {
         const room = rooms[roomCode];
         if (!room) return;
+        updateActivity(roomCode);
         
-        if (!isValidProNumber(secret)) {
-            socket.emit('error', 'Invalid secret number');
-            return;
-        }
+        if (!isValidProNumber(secret)) return socket.emit('error', 'Invalid secret number');
         
         const playerNumber = room.playerNumbers[socket.id];
         const playerKey = `player${playerNumber}`;
@@ -225,133 +255,115 @@ io.on('connection', (socket) => {
         room.playerSecrets[playerKey] = secret;
         room.playerReady[playerKey] = true;
         
-        // Send the secret back to the player to display
         socket.emit('secretSet', { playerNumber, secret });
+        if (room.sockets[opponentKey]) io.to(room.sockets[opponentKey]).emit('opponentSecretSet');
         
-        // Notify opponent that secret is set
-        if (room.sockets[opponentKey]) {
-            io.to(room.sockets[opponentKey]).emit('opponentSecretSet');
-        }
-        
-        // Check if both players are ready
         if (room.playerReady.player1 && room.playerReady.player2) {
             room.gameStarted = true;
-            // The person who lost the last round (or P1) starts, but let's keep P1 for simplicity, 
-            // or switch based on logic. We'll default to P1.
             if (!room.currentTurn) room.currentTurn = 'player1'; 
+            room.roundFirstPlayer = room.currentTurn;
             
             io.to(roomCode).emit('gameStart', {
                 turn: room.currentTurn,
                 message: 'Game started! Player ' + (room.currentTurn === 'player1' ? '1' : '2') + ' goes first'
             });
+            startRoundTimer(roomCode);
         }
     });
 
-    // Player makes a guess
+    // typing
+    socket.on('typing', ({ roomCode, isTyping }) => {
+        const room = rooms[roomCode];
+        if (!room) return;
+        updateActivity(roomCode);
+        const playerNumber = room.playerNumbers[socket.id];
+        const opponentKey = playerNumber === 1 ? 'player2' : 'player1';
+        if (room.sockets[opponentKey]) {
+            io.to(room.sockets[opponentKey]).emit('opponentTyping', { isTyping });
+        }
+    });
+
+    // makeGuess
     socket.on('makeGuess', ({ roomCode, guess }) => {
         const room = rooms[roomCode];
         if (!room || !room.gameStarted) return;
+        updateActivity(roomCode);
         
         const playerNumber = room.playerNumbers[socket.id];
         const currentPlayer = `player${playerNumber}`;
-        const opponentNumber = playerNumber === 1 ? 2 : 1;
-        const opponentKey = `player${opponentNumber}`;
+        const opponentKey = playerNumber === 1 ? 'player2' : 'player1';
         
-        if (room.currentTurn !== currentPlayer) {
-            socket.emit('error', 'Not your turn');
-            return;
-        }
-        
-        if (!isValidProNumber(guess)) {
-            socket.emit('error', 'Invalid guess');
-            return;
-        }
+        if (room.currentTurn !== currentPlayer) return socket.emit('error', 'Not your turn');
+        if (!isValidProNumber(guess)) return socket.emit('error', 'Invalid guess');
         
         const opponentSecret = room.playerSecrets[opponentKey];
-        if (!opponentSecret) {
-            socket.emit('error', 'Opponent secret not set');
-            return;
-        }
+        if (!opponentSecret) return socket.emit('error', 'Opponent secret not set');
         
-        // Server generates the feedback
+        clearRoomTimer(roomCode);
+        
         const feedback = evaluateFeedbackLeftToRight(opponentSecret, guess);
+        room.guesses[currentPlayer].push({ player: currentPlayer, guess, feedback, timestamp: Date.now() });
         
-        // Store the guess
-        const guessEntry = {
-            player: currentPlayer,
-            guess: guess,
-            feedback: feedback,
-            timestamp: Date.now()
-        };
+        io.to(roomCode).emit('guessResult', { guesser: currentPlayer, guess, feedback, playerNumber });
         
-        room.guesses[currentPlayer].push(guessEntry);
-        
-        // Broadcast the guess result to both players so they see the final guess
-        io.to(roomCode).emit('guessResult', {
-            guesser: currentPlayer,
-            guess: guess,
-            feedback: feedback,
-            playerNumber: playerNumber
-        });
-        
-        // Check win condition for the round
         if (feedback === 'TTT') {
-            room.scores[currentPlayer]++;
-            const winnerName = room.usernames[currentPlayer];
+            const playerTurnOrder = room.roundFirstPlayer === currentPlayer ? 1 : 2;
             
-            if (room.scores[currentPlayer] >= 5) {
-                // Game completely won
-                io.to(roomCode).emit('gameWon', {
-                    winner: currentPlayer,
-                    winnerName: winnerName,
-                    scores: room.scores,
-                    message: `${winnerName} wins the game!`
+            if (playerTurnOrder === 1) {
+                // First player won. Second player gets draw chance.
+                room.pendingDrawChance = opponentKey;
+                room.currentTurn = opponentKey;
+                io.to(roomCode).emit('drawChance', {
+                    player: opponentKey,
+                    message: `${room.usernames[currentPlayer]} guessed the number! ${room.usernames[opponentKey]} gets one last chance to draw!`,
                 });
+                startRoundTimer(roomCode);
+                return;
             } else {
-                // Round won
-                io.to(roomCode).emit('roundWon', {
-                    winner: currentPlayer,
-                    scores: room.scores,
-                    message: `${winnerName} guessed the number correctly!`
-                });
-                
-                // Reset round state
-                room.gameStarted = false;
-                room.playerSecrets = {};
-                room.playerReady = {};
-                room.guesses = { player1: [], player2: [] };
-                
-                // Loser of the round (opponent) goes first next round
-                room.currentTurn = opponentKey; 
+                // Second player won
+                if (room.pendingDrawChance === currentPlayer) {
+                    // It's a draw!
+                    io.to(roomCode).emit('roundDraw', {
+                        scores: room.scores,
+                        message: `Both players guessed correctly! Round is a DRAW!`
+                    });
+                    resetRoundState(roomCode, currentPlayer === 'player1' ? 'player2' : 'player1');
+                    return;
+                } else {
+                    // Normal win
+                    finishRound(roomCode, currentPlayer);
+                    return;
+                }
             }
-            return;
+        } else {
+            if (room.pendingDrawChance === currentPlayer) {
+                // Failed draw chance
+                finishRound(roomCode, opponentKey);
+                return;
+            }
+            
+            // Switch turn properly
+            room.currentTurn = opponentKey;
+            io.to(roomCode).emit('turnChanged', {
+                turn: room.currentTurn,
+                message: `${room.usernames[room.currentTurn]}'s turn to guess`
+            });
+            startRoundTimer(roomCode);
         }
-        
-        // Switch turn
-        room.currentTurn = opponentKey;
-        io.to(roomCode).emit('turnChanged', {
-            turn: room.currentTurn,
-            message: `${room.usernames[room.currentTurn]}'s turn to guess`
-        });
     });
 
-    // Player leaves or disconnects
+    // disconnect
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
-        
         const info = socketToPlayerInfo[socket.id];
         if (info) {
             const room = rooms[info.roomCode];
             if (room) {
+                updateActivity(info.roomCode);
                 const opponentKey = info.playerKey === 'player1' ? 'player2' : 'player1';
-                
-                // Notify opponent if they are online
                 if (room.sockets[opponentKey]) {
                     io.to(room.sockets[opponentKey]).emit('opponentDisconnected');
                 }
-                
-                // We do NOT delete the room so they can rejoin on refresh
-                // But we clear the socket ID from the mapping
                 if (room.sockets[info.playerKey] === socket.id) {
                     room.sockets[info.playerKey] = null;
                 }

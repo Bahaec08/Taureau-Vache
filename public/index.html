@@ -36,13 +36,21 @@
                     <div class="scoreboard-title">T·V·0</div>
                     <div class="room-info" id="roomInfo"></div>
                     <div class="scoreboard" id="scoreboard">
-                        <span id="player1Name" class="player-name">Player 1</span> (<span id="player1Score">0</span>)
+                        <div class="player-container" id="p1Container">
+                            <img id="player1Avatar" class="avatar" src="" style="display: none;" />
+                            <span id="player1Name" class="player-name">Player 1</span> (<span id="player1Score">0</span>)
+                            <div id="player1Thinking" class="thinking-emote" style="display:none;">💬</div>
+                        </div>
                         <span class="score-divider">-</span>
-                        <span id="player2Name" class="player-name">Player 2</span> (<span id="player2Score">0</span>)
+                        <div class="player-container" id="p2Container">
+                            <span id="player2Name" class="player-name">Player 2</span> (<span id="player2Score">0</span>)
+                            <img id="player2Avatar" class="avatar" src="" style="display: none; margin-left: 5px; margin-right: 0;" />
+                            <div id="player2Thinking" class="thinking-emote" style="display:none;">💬</div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Secret Banner - Always visible at the top -->
+                <!-- Secret Banner -->
                 <div class="secret-banner" id="secretBanner" style="display: none;">
                     <div class="secret-label">🤫 Your secret:</div>
                     <div class="secret-number" id="mySecretDisplay">———</div>
@@ -66,6 +74,10 @@
 
                 <div id="gameArea" style="display: none; height: 100%; display: flex; flex-direction: column;">
                     <div class="turn-indicator" id="turnIndicator">Waiting for game to start...</div>
+                    
+                    <div class="timer-wrapper" id="timerWrapper" style="display: none;">
+                        <div class="timer-bar" id="timerBar"></div>
+                    </div>
 
                     <div class="history-row">
                         <div class="panel">

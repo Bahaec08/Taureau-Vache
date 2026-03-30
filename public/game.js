@@ -21,10 +21,17 @@ if (username) usernameInput.value = username;
 
 // DOM Elements - Game
 const roomInfo = document.getElementById('roomInfo');
+
+// Avatars and Players
 const player1NameEl = document.getElementById('player1Name');
 const player2NameEl = document.getElementById('player2Name');
 const player1ScoreEl = document.getElementById('player1Score');
 const player2ScoreEl = document.getElementById('player2Score');
+const player1Avatar = document.getElementById('player1Avatar');
+const player2Avatar = document.getElementById('player2Avatar');
+const player1Thinking = document.getElementById('player1Thinking');
+const player2Thinking = document.getElementById('player2Thinking');
+
 const secretSetup = document.getElementById('secretSetup');
 const secretBanner = document.getElementById('secretBanner');
 const mySecretDisplay = document.getElementById('mySecretDisplay');
@@ -33,6 +40,11 @@ const secretInput = document.getElementById('secretInput');
 const setSecretBtn = document.getElementById('setSecretBtn');
 const secretError = document.getElementById('secretError');
 const turnIndicator = document.getElementById('turnIndicator');
+
+// Timer
+const timerWrapper = document.getElementById('timerWrapper');
+const timerBar = document.getElementById('timerBar');
+
 const myGuesses = document.getElementById('myGuesses');
 const opponentGuesses = document.getElementById('opponentGuesses');
 const guessInput = document.getElementById('guessInput');
@@ -51,6 +63,17 @@ const playAgainBtn = document.getElementById('playAgainBtn');
 const digitGrid = document.getElementById('digitGrid');
 const eliminatedCount = document.getElementById('eliminatedCount');
 const resetEliminatorBtn = document.getElementById('resetEliminatorBtn');
+
+function showError(el, msg) {
+    el.textContent = msg;
+    el.parentElement.classList.remove('shake');
+    void el.parentElement.offsetWidth; // trigger reflow
+    el.parentElement.classList.add('shake');
+}
+
+function getAvatarUrl(seed) {
+    return `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
+}
 
 // Initialize digit grid
 function renderDigitGrid() {
@@ -101,14 +124,11 @@ joinRoomBtn.addEventListener('click', () => {
 setSecretBtn.addEventListener('click', () => {
     const secret = secretInput.value.trim();
     if (!isValidProNumber(secret)) {
-        secretError.textContent = 'Invalid: 3 digits, no leading zero, all unique';
+        showError(secretError, 'Invalid: 3 digits, no leading zero, all unique');
         return;
     }
     mySecret = secret;
-    socket.emit('setSecret', {
-        roomCode: currentRoom,
-        secret
-    });
+    socket.emit('setSecret', { roomCode: currentRoom, secret });
 });
 
 // Reset eliminator
@@ -121,7 +141,6 @@ resetEliminatorBtn.addEventListener('click', () => {
 digitGrid.addEventListener('click', (e) => {
     const target = e.target.closest('.digit-btn');
     if (!target || target.classList.contains('eliminated')) return;
-    
     const digit = parseInt(target.dataset.digit, 10);
     eliminatedDigits[digit] = true;
     renderDigitGrid();
@@ -131,32 +150,38 @@ digitGrid.addEventListener('click', (e) => {
 guessBtn.addEventListener('click', () => {
     const guess = guessInput.value.trim();
     if (!isValidProNumber(guess)) {
-        gameError.textContent = 'Invalid guess';
+        showError(gameError, 'Invalid guess');
         return;
     }
-    
-    socket.emit('makeGuess', {
-        roomCode: currentRoom,
-        guess
-    });
-    
+    socket.emit('makeGuess', { roomCode: currentRoom, guess });
     guessInput.value = '';
     guessInput.disabled = true;
     guessBtn.disabled = true;
     turnMessage.textContent = 'Waiting for result...';
+    socket.emit('typing', { roomCode: currentRoom, isTyping: false });
+});
+
+// Typing detection
+let typingTimeout = null;
+guessInput.addEventListener('input', () => {
+    if (!guessInput.disabled) {
+        socket.emit('typing', { roomCode: currentRoom, isTyping: true });
+        if (typingTimeout) clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            socket.emit('typing', { roomCode: currentRoom, isTyping: false });
+        }, 1000);
+    }
 });
 
 // Enter key handlers
 secretInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') setSecretBtn.click();
 });
-
 guessInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !guessBtn.disabled) guessBtn.click();
 });
 
 nextRoundBtn.addEventListener('click', () => {
-    // Reset board for next round
     myGuesses.innerHTML = '';
     opponentGuesses.innerHTML = '';
     eliminatedDigits = new Array(10).fill(false);
@@ -177,7 +202,7 @@ playAgainBtn.addEventListener('click', () => {
     location.reload();
 });
 
-// Socket event handlers
+// Socket Events
 socket.on('roomCreated', ({ roomCode, playerNumber: pNum, usernames }) => {
     setupGameUI(roomCode, pNum);
     updateScoreboard(usernames, {player1: 0, player2: 0});
@@ -196,20 +221,16 @@ socket.on('opponentJoined', ({ usernames, scores }) => {
 });
 
 socket.on('syncState', (state) => {
-    // Fired on rejoin
     setupGameUI(state.roomCode, state.playerNumber);
     updateScoreboard(state.usernames, state.scores);
     
     const myKey = `player${state.playerNumber}`;
-    
-    // Restore my secret if already set
     if (state.mySecret) {
         mySecret = state.mySecret;
         secretSetup.style.display = 'none';
         secretBanner.style.display = 'flex';
         mySecretDisplay.textContent = mySecret;
         gameArea.style.display = 'flex';
-        gameArea.style.flexDirection = 'column';
         guessInputArea.style.display = 'flex';
         nextRoundArea.style.display = 'none';
     } else {
@@ -218,10 +239,8 @@ socket.on('syncState', (state) => {
         gameArea.style.display = 'none';
     }
     
-    // Restore guesses history
     myGuesses.innerHTML = '';
     opponentGuesses.innerHTML = '';
-    
     const opponentKey = state.playerNumber === 1 ? 'player2' : 'player1';
     
     state.guesses[myKey].forEach(g => addGuessToUI(g.guess, g.feedback, true));
@@ -233,11 +252,8 @@ socket.on('syncState', (state) => {
     } else {
         gameStarted = false;
         turnIndicator.textContent = 'Waiting for game to start...';
-        if (!state.mySecret) {
-            turnIndicator.textContent = 'Set your secret.';
-        } else if (!state.opponentReady) {
-            turnIndicator.textContent = 'Waiting for opponent to set secret...';
-        }
+        if (!state.mySecret) turnIndicator.textContent = 'Set your secret.';
+        else if (!state.opponentReady) turnIndicator.textContent = 'Waiting for opponent to set secret...';
     }
 });
 
@@ -253,19 +269,26 @@ function setupGameUI(roomCode, pNum) {
 
 function updateScoreboard(usernames, scores) {
     player1NameEl.textContent = usernames.player1 || 'Player 1';
-    player2NameEl.textContent = usernames.player2 || 'Waiting...';
     player1ScoreEl.textContent = scores.player1 || 0;
+    if (usernames.player1) {
+        player1Avatar.src = getAvatarUrl(usernames.player1);
+        player1Avatar.style.display = 'inline-block';
+    }
+    
+    player2NameEl.textContent = usernames.player2 || 'Waiting...';
     player2ScoreEl.textContent = scores.player2 || 0;
+    if (usernames.player2) {
+        player2Avatar.src = getAvatarUrl(usernames.player2);
+        player2Avatar.style.display = 'inline-block';
+    }
 }
 
 socket.on('secretSet', ({ playerNumber: pNum, secret }) => {
     if (pNum === playerNumber) {
-        // Hide setup, show secret banner
         secretSetup.style.display = 'none';
         secretBanner.style.display = 'flex';
         mySecretDisplay.textContent = secret;
         gameArea.style.display = 'flex';
-        gameArea.style.flexDirection = 'column';
         secretInput.value = '';
         turnIndicator.textContent = 'Waiting for opponent to set secret...';
     }
@@ -281,27 +304,34 @@ socket.on('gameStart', ({ turn, message }) => {
     updateTurnUI(turn);
 });
 
+socket.on('timerStarted', ({ duration }) => {
+    timerWrapper.style.display = 'block';
+    timerBar.classList.remove('timer-active');
+    void timerBar.offsetWidth; // reset animation
+    timerBar.style.animationDuration = `${duration}s`;
+    timerBar.classList.add('timer-active');
+});
+
 socket.on('guessResult', ({ guesser, guess, feedback, playerNumber: pNum }) => {
     const isMyGuess = (playerNumber === pNum);
     addGuessToUI(guess, feedback, isMyGuess);
-    
     if (!isMyGuess) {
         turnIndicator.textContent = `Opponent guessed ${guess} → ${feedback}`;
     }
+    player1Thinking.style.display = 'none';
+    player2Thinking.style.display = 'none';
 });
 
 function addGuessToUI(guess, feedback, isMyGuess) {
     const targetList = isMyGuess ? myGuesses : opponentGuesses;
     const guessRow = document.createElement('div');
     guessRow.className = 'guess-row';
-    
     const guessNum = document.createElement('span');
     guessNum.className = 'guess-number';
     guessNum.textContent = guess;
     
     const guessFb = document.createElement('span');
     guessFb.className = 'guess-feedback';
-    
     const fbHtml = feedback.split('').map(ch => {
         if (ch === 'T') return '<span class="feedback-t">T</span>';
         if (ch === 'V') return '<span class="feedback-v">V</span>';
@@ -311,7 +341,6 @@ function addGuessToUI(guess, feedback, isMyGuess) {
     
     guessRow.appendChild(guessNum);
     guessRow.appendChild(guessFb);
-    
     targetList.insertBefore(guessRow, targetList.firstChild);
     targetList.scrollTop = 0;
 }
@@ -321,44 +350,71 @@ socket.on('turnChanged', ({ turn, message }) => {
     updateTurnUI(turn);
 });
 
+socket.on('turnTimeout', ({ player, message }) => {
+    turnIndicator.textContent = message;
+});
+
+socket.on('drawChance', ({ player, message }) => {
+    turnIndicator.textContent = message;
+    updateTurnUI(player);
+});
+
+socket.on('roundDraw', ({ message, scores }) => {
+    endRound(message, scores);
+});
+
 socket.on('roundWon', ({ winner, message, scores }) => {
-    gameStarted = false;
-    guessInput.disabled = true;
-    guessBtn.disabled = true;
-    
-    // Update scores
-    player1ScoreEl.textContent = scores.player1;
-    player2ScoreEl.textContent = scores.player2;
-    
-    turnIndicator.textContent = `🎉 ${message} 🎉`;
-    
-    guessInputArea.style.display = 'none';
-    nextRoundArea.style.display = 'block';
+    endRound(`🎉 ${message} 🎉`, scores);
 });
 
 socket.on('gameWon', ({ winner, message, winnerName, scores }) => {
     gameStarted = false;
     guessInput.disabled = true;
     guessBtn.disabled = true;
-    
-    // Update scores
     player1ScoreEl.textContent = scores.player1;
     player2ScoreEl.textContent = scores.player2;
+    timerWrapper.style.display = 'none';
     
     winnerText.textContent = `${winnerName} Wins! 🏆`;
     winnerOverlay.style.display = 'flex';
 });
 
+function endRound(message, scores) {
+    gameStarted = false;
+    guessInput.disabled = true;
+    guessBtn.disabled = true;
+    player1ScoreEl.textContent = scores.player1;
+    player2ScoreEl.textContent = scores.player2;
+    turnIndicator.textContent = message;
+    timerWrapper.style.display = 'none';
+    guessInputArea.style.display = 'none';
+    nextRoundArea.style.display = 'block';
+    
+    player1Avatar.classList.remove('active-turn');
+    player2Avatar.classList.remove('active-turn');
+}
+
+socket.on('opponentTyping', ({ isTyping }) => {
+    const oppKey = playerNumber === 1 ? 'player2' : 'player1';
+    const thinkEmote = document.getElementById(`${oppKey}Thinking`);
+    if(thinkEmote) thinkEmote.style.display = isTyping ? 'block' : 'none';
+});
+
 socket.on('opponentDisconnected', () => {
-    // Only show simple message, do not reset game (we allow refresh/rejoin)
     turnIndicator.textContent = 'Opponent is offline. Waiting for them to reconnect...';
 });
 
 socket.on('error', (message) => {
-    landingError.textContent = message;
     gameError.textContent = message;
+    landingError.textContent = message;
     
-    // If it's a join error and we were auto-rejoining, clear session
+    // Check if element exists before shaking
+    if (gamePage.style.display === 'block') {
+        showError(gameError, message);
+    } else {
+        showError(landingError, message);
+    }
+    
     if (message === 'Room not found' && sessionStorage.getItem('tv0_room')) {
         sessionStorage.removeItem('tv0_room');
         location.reload();
@@ -370,11 +426,17 @@ function updateTurnUI(turn) {
     guessInput.disabled = !isMyTurn;
     guessBtn.disabled = !isMyTurn;
     
+    player1Avatar.classList.remove('active-turn');
+    player2Avatar.classList.remove('active-turn');
+    const activeAvatar = turn === 'player1' ? player1Avatar : player2Avatar;
+    activeAvatar.classList.add('active-turn');
+    
     if (isMyTurn) {
         turnMessage.textContent = 'Your turn to guess!';
         guessInput.focus();
     } else {
         turnMessage.textContent = "Opponent's turn...";
+        guessInput.value = '';
     }
 }
 
