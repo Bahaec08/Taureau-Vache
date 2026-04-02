@@ -1,3 +1,6 @@
+<?php
+// index.php - Home page for T·V·0 game
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,10 +16,9 @@
     <div class="home-page glass-panel" id="homePage">
         <h1>T·V·0 🎮</h1>
         <div class="home-buttons">
-            <button id="howToPlayBtn" class="home-btn primary-btn">How to Play</button>
-            <button id="playComputerBtn" class="home-btn primary-btn">Play vs Computer</button>
-            <button id="playFriendBtn" class="home-btn primary-btn">Play vs Friend (Room)</button>
-            <button id="playRandomBtn" class="home-btn primary-btn">Play vs Random</button>
+            <button id="howToPlayBtn" class="home-btn primary-btn">📖 How to Play</button>
+            <button id="playComputerBtn" class="home-btn primary-btn">🤖 Play vs Computer</button>
+            <button id="playOnlineBtn" class="home-btn primary-btn">🌐 Play Online</button>
         </div>
     </div>
 

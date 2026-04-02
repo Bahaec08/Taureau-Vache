@@ -837,6 +837,55 @@ button:disabled {
     color: white;
 }
 
+/* Random Match Button */
+#findRandomBtn {
+    background: linear-gradient(135deg, rgba(155, 93, 229, 0.8), rgba(241, 91, 181, 0.8));
+}
+#findRandomBtn:hover {
+    background: linear-gradient(135deg, rgba(155, 93, 229, 1), rgba(241, 91, 181, 1));
+}
+
+/* Cancel Button */
+.cancel-btn {
+    background: rgba(241, 91, 181, 0.2);
+    border: 1px solid rgba(241, 91, 181, 0.5);
+    color: var(--neon-red);
+    box-shadow: none;
+}
+.cancel-btn:hover {
+    background: rgba(241, 91, 181, 0.4);
+    color: white;
+}
+
+/* Searching Status */
+.searching-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    padding: 1rem;
+    background: rgba(155, 93, 229, 0.1);
+    border: 1px solid rgba(155, 93, 229, 0.3);
+    border-radius: 12px;
+    margin: 0.5rem 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* Spinner */
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(155, 93, 229, 0.3);
+    border-top-color: var(--neon-green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Username input */
 .username-input {
     background: rgba(0,0,0,0.4);

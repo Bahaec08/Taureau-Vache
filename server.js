@@ -15,6 +15,9 @@ const rooms = {};
 // Map socket id to { roomCode, playerKey } for disconnect logic
 const socketToPlayerInfo = {};
 
+// Random matchmaking queue
+const matchmakingQueue = [];
+
 // Garbage Collection for inactive rooms
 setInterval(() => {
     const now = Date.now();
@@ -22,7 +25,6 @@ setInterval(() => {
         if (now - rooms[roomCode].lastActivity > 30 * 60 * 1000) { // 30 mins
             if (rooms[roomCode].timer) clearTimeout(rooms[roomCode].timer);
             delete rooms[roomCode];
-            console.log(`Cleaned up inactive room: ${roomCode}`);
         }
     }
 }, 10 * 60 * 1000);
@@ -243,6 +245,113 @@ io.on('connection', (socket) => {
         });
     });
 
+    // joinRandomQueue
+    socket.on('joinRandomQueue', ({ username, timerDuration }) => {
+        // Remove if already in queue
+        const existingIndex = matchmakingQueue.findIndex(q => q.socketId === socket.id);
+        if (existingIndex !== -1) {
+            matchmakingQueue.splice(existingIndex, 1);
+        }
+        
+        const duration = timerDuration && [10, 15, 20].includes(timerDuration) ? timerDuration : 15;
+        
+        // Check if there's someone waiting
+        if (matchmakingQueue.length > 0) {
+            const opponent = matchmakingQueue.shift();
+            
+            // Create a room for both players
+            const roomCode = generateRoomCode();
+            rooms[roomCode] = {
+                roomCode,
+                players: [socket.id, opponent.socketId],
+                usernames: { player1: username, player2: opponent.username },
+                playerNumbers: {},
+                scores: { player1: 0, player2: 0 },
+                playerSecrets: {},
+                guesses: { player1: [], player2: [] },
+                currentTurn: null,
+                roundFirstPlayer: null,
+                gameStarted: false,
+                playerReady: {},
+                sockets: { player1: socket.id, player2: opponent.socketId },
+                lastActivity: Date.now(),
+                timer: null,
+                timerDuration: duration,
+                pendingDrawChance: null
+            };
+            
+            // Set player numbers
+            rooms[roomCode].playerNumbers[socket.id] = 1;
+            rooms[roomCode].playerNumbers[opponent.socketId] = 2;
+            
+            // Map socket to room
+            socketToPlayerInfo[socket.id] = { roomCode, playerKey: 'player1' };
+            socketToPlayerInfo[opponent.socketId] = { roomCode, playerKey: 'player2' };
+            
+            // Join room - current player
+            socket.join(roomCode);
+            
+            // Notify opponent to join the room and get their match notification
+            // Use the opponent's stored callback/response to join the room
+            io.to(opponent.socketId).emit('joinRandomRoom', { 
+                roomCode,
+                opponentUsername: username,
+                playerNumber: 2,
+                myUsername: opponent.username,
+                duration: opponent.timerDuration
+            });
+            
+            // Notify current player
+            socket.emit('randomMatchFound', { 
+                roomCode, 
+                playerNumber: 1, 
+                usernames: rooms[roomCode].usernames, 
+                scores: rooms[roomCode].scores
+            });
+        } else {
+            // Add to queue
+            matchmakingQueue.push({
+                socketId: socket.id,
+                username,
+                timerDuration: duration,
+                timestamp: Date.now()
+            });
+            socket.emit('waitingForMatch', { message: 'Looking for an opponent...' });
+        }
+    });
+
+    // cancelRandomQueue
+    socket.on('cancelRandomQueue', () => {
+        const index = matchmakingQueue.findIndex(q => q.socketId === socket.id);
+        if (index !== -1) {
+            matchmakingQueue.splice(index, 1);
+            socket.emit('queueCancelled', { message: 'Removed from matchmaking queue' });
+        }
+    });
+
+    // joinRoomFromMatch - for players matched via random matchmaking
+    socket.on('joinRoomFromMatch', ({ roomCode, username }) => {
+        const room = rooms[roomCode];
+        if (!room) return socket.emit('error', 'Room not found');
+        
+        // Join socket to room
+        socket.join(roomCode);
+        
+        // Update socket info
+        socketToPlayerInfo[socket.id] = { roomCode, playerKey: 'player2' };
+        
+        // Notify the player
+        socket.emit('randomMatchFound', { 
+            roomCode, 
+            playerNumber: 2, 
+            usernames: room.usernames, 
+            scores: room.scores
+        });
+        
+        // Notify the other player that opponent joined
+        io.to(room.sockets.player1).emit('opponentJoined', { usernames: room.usernames, scores: room.scores });
+    });
+
     // setSecret
     socket.on('setSecret', ({ roomCode, secret }) => {
         const room = rooms[roomCode];
@@ -357,7 +466,6 @@ io.on('connection', (socket) => {
 
     // disconnect
     socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
         const info = socketToPlayerInfo[socket.id];
         if (info) {
             const room = rooms[info.roomCode];
@@ -377,6 +485,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT);

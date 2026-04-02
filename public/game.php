@@ -1,3 +1,6 @@
+<?php
+// game.php - Game page for T·V·0
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,7 +15,7 @@
     <!-- Landing Page (for online play) -->
     <div class="landing-page glass-panel" id="landingPage">
         <button id="backToHomeBtn" class="back-btn">← Back to Home</button>
-        <h1 id="landingTitle">T·V·0 ONLINE 🌐</h1>
+        <h1>T·V·0 ONLINE 🌐</h1>
         
         <div class="landing-buttons">
             <input type="text" id="usernameInput" class="username-input" placeholder="Enter your username" maxlength="15">
@@ -24,28 +27,11 @@
                     <option value="20">20s</option>
                 </select>
             </div>
-            
-            <button id="createRoomBtn">Create Private Room 🔐</button>
+            <button id="createRoomBtn">Create New Game 🎲</button>
             <div class="or-divider">OR</div>
-            
-            <!-- Random Match Section (hidden for friend mode) -->
-            <div id="randomMatchSection">
-                <button id="findRandomBtn">Find Random Match 🎯</button>
-                <button id="cancelRandomBtn" class="cancel-btn" style="display: none;">Cancel Search ❌</button>
-                <div id="searchingStatus" class="searching-status" style="display: none;">
-                    <div class="spinner"></div>
-                    <span>Searching for opponent...</span>
-                </div>
-                <div class="or-divider">OR</div>
-            </div>
-            
-            <!-- Friend Mode: Room Code Section -->
-            <div id="friendSection">
-                <div class="join-section">
-                    <input type="text" id="roomCodeInput" placeholder="Enter room code" maxlength="6">
-                    <button id="joinRoomBtn">Join Game 🔑</button>
-                </div>
-                
+            <div class="join-section">
+                <input type="text" id="roomCodeInput" placeholder="Enter room code" maxlength="6">
+                <button id="joinRoomBtn">Join Game 🔑</button>
             </div>
         </div>
         

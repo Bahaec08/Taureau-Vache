@@ -1,8 +1,9 @@
 const socket = io();
 
-// Get game mode from URL parameter
+// Get game mode and submode from URL parameter
 const urlParams = new URLSearchParams(window.location.search);
 const gameMode = urlParams.get('mode') || 'online'; // default to online
+const gameSubmode = urlParams.get('submode') || 'random'; // default to random
 
 // State
 let currentRoom = null;
@@ -11,6 +12,7 @@ let mySecret = null;
 let gameStarted = false;
 let eliminatedDigits = new Array(10).fill(false);
 let username = sessionStorage.getItem('tv0_username') || '';
+let isSearchingRandom = false;
 
 // Single Player State
 let isSinglePlayer = gameMode === 'computer';
@@ -20,6 +22,7 @@ let singlePlayerAttempts = 0;
 // DOM Elements - Landing
 const landingPage = document.getElementById('landingPage');
 const gamePage = document.getElementById('gamePage');
+const landingTitle = document.getElementById('landingTitle');
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
 const roomCodeInput = document.getElementById('roomCodeInput');
@@ -27,6 +30,11 @@ const usernameInput = document.getElementById('usernameInput');
 const timerSelect = document.getElementById('timerSelect');
 const landingError = document.getElementById('landingError');
 const backToHomeBtn = document.getElementById('backToHomeBtn');
+const findRandomBtn = document.getElementById('findRandomBtn');
+const cancelRandomBtn = document.getElementById('cancelRandomBtn');
+const searchingStatus = document.getElementById('searchingStatus');
+const randomMatchSection = document.getElementById('randomMatchSection');
+const friendSection = document.getElementById('friendSection');
 
 if (username) usernameInput.value = username;
 
@@ -109,39 +117,6 @@ function isValidProNumber(numStr) {
     if (!/^\d{3}$/.test(numStr)) return false;
     if (numStr[0] === '0') return false;
     return new Set(numStr.split('')).size === 3;
-}
-
-// Evaluate feedback locally
-function evaluateFeedbackLeftToRight(secret, guess) {
-    if (typeof secret !== 'string' || typeof guess !== 'string' || secret.length !== 3 || guess.length !== 3) return '';
-    const secretArr = secret.split('');
-    const guessArr = guess.split('');
-    
-    let usedInSecret = [false, false, false];
-    let feedback = [];
-    
-    for (let i = 0; i < 3; i++) {
-        if (guessArr[i] === secretArr[i]) {
-            feedback[i] = 'T';
-            usedInSecret[i] = true;
-        } else {
-            feedback[i] = null;
-        }
-    }
-    
-    for (let i = 0; i < 3; i++) {
-        if (feedback[i] !== null) continue;
-        let found = false;
-        for (let j = 0; j < 3; j++) {
-            if (!usedInSecret[j] && guessArr[i] === secretArr[j]) {
-                found = true;
-                usedInSecret[j] = true;
-                break;
-            }
-        }
-        feedback[i] = found ? 'V' : '';
-    }
-    return feedback.join('');
 }
 
 // Evaluate feedback locally
@@ -334,6 +309,74 @@ nextRoundBtn.addEventListener('click', () => {
 playAgainBtn.addEventListener('click', () => {
     sessionStorage.removeItem('tv0_room');
     location.reload();
+});
+
+// --- Random Matchmaking ---
+
+// Find random match
+findRandomBtn.addEventListener('click', () => {
+    username = usernameInput.value.trim();
+    if (!username) {
+        landingError.textContent = 'Please enter a username';
+        return;
+    }
+    const timerDuration = parseInt(timerSelect.value) || 15;
+    sessionStorage.setItem('tv0_username', username);
+    
+    isSearchingRandom = true;
+    findRandomBtn.style.display = 'none';
+    cancelRandomBtn.style.display = 'block';
+    searchingStatus.style.display = 'flex';
+    joinRoomBtn.disabled = true;
+    createRoomBtn.disabled = true;
+    roomCodeInput.disabled = true;
+    
+    socket.emit('joinRandomQueue', { username, timerDuration });
+});
+
+// Cancel random search
+cancelRandomBtn.addEventListener('click', () => {
+    socket.emit('cancelRandomQueue');
+});
+
+// Socket events for random matchmaking
+socket.on('waitingForMatch', ({ message }) => {
+    landingError.textContent = message;
+});
+
+socket.on('randomMatchFound', ({ roomCode, playerNumber: pNum, usernames, scores }) => {
+    isSearchingRandom = false;
+    findRandomBtn.style.display = 'block';
+    cancelRandomBtn.style.display = 'none';
+    searchingStatus.style.display = 'none';
+    joinRoomBtn.disabled = false;
+    createRoomBtn.disabled = false;
+    roomCodeInput.disabled = false;
+    landingError.textContent = '';
+    
+    setupGameUI(roomCode, pNum);
+    updateScoreboard(usernames, scores);
+    turnIndicator.textContent = 'Opponent found! Set your secret.';
+});
+
+// Handle being matched as the second player (need to join room first)
+socket.on('joinRandomRoom', ({ roomCode, opponentUsername, playerNumber, myUsername, duration }) => {
+    // Set player number before joining room
+    playerNumber = playerNumber;
+    
+    // Join the room via socket
+    socket.emit('joinRoomFromMatch', { roomCode, username: myUsername });
+});
+
+socket.on('queueCancelled', ({ message }) => {
+    isSearchingRandom = false;
+    findRandomBtn.style.display = 'block';
+    cancelRandomBtn.style.display = 'none';
+    searchingStatus.style.display = 'none';
+    joinRoomBtn.disabled = false;
+    createRoomBtn.disabled = false;
+    roomCodeInput.disabled = false;
+    landingError.textContent = message;
 });
 
 // Socket Events
@@ -665,6 +708,19 @@ function initializePage() {
         // Initialize online game - show landing page
         landingPage.style.display = 'block';
         gamePage.style.display = 'none';
+        
+        // Handle submode visibility
+        if (gameSubmode === 'friend') {
+            // Friend mode: hide random match section, show only room options
+            randomMatchSection.style.display = 'none';
+            friendSection.style.display = 'block';
+            landingTitle.textContent = 'T·V·0 vs FRIEND 👥';
+        } else {
+            // Random mode: show random match section, hide friend section
+            randomMatchSection.style.display = 'block';
+            friendSection.style.display = 'none';
+            landingTitle.textContent = 'T·V·0 ONLINE 🌐';
+        }
     }
 }
 
